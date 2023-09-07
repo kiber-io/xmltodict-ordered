@@ -1,5 +1,7 @@
 # xmltodict
 
+## This fork is designed to combine the latest version of xmltodict and [another fork](https://github.com/lindsay-stevens/xmltodict/commits/ordered-children-short-tags) that allows you to preserve the order of tags in xml in .parse and .unparse functions. All the laurels should be given to [lindsay-stevens](https://github.com/lindsay-stevens)
+
 `xmltodict` is a Python module that makes working with XML feel like you are working with [JSON](http://docs.python.org/library/json.html), as in this ["spec"](http://www.xml.com/pub/a/2006/05/31/converting-between-xml-and-json.html):
 
 [![Build Status](https://app.travis-ci.com/martinblech/xmltodict.svg?branch=master)](https://app.travis-ci.com/martinblech/xmltodict)
@@ -18,15 +20,15 @@
 ...  """), indent=4))
 {
     "mydocument": {
-        "@has": "an attribute", 
+        "@has": "an attribute",
         "and": {
             "many": [
-                "elements", 
+                "elements",
                 "more elements"
             ]
-        }, 
+        },
         "plus": {
-            "@a": "complex", 
+            "@a": "complex",
             "#text": "element as well"
         }
     }
@@ -82,7 +84,7 @@ True
 >>> def handle_artist(_, artist):
 ...     print(artist['name'])
 ...     return True
->>> 
+>>>
 >>> xmltodict.parse(GzipFile('discogs_artists.xml.gz'),
 ...     item_depth=2, item_callback=handle_artist)
 A Perfect Circle
@@ -150,7 +152,7 @@ Text values for nodes can be specified with the `cdata_key` key in the python di
 
 ```python
 >>> import xmltodict
->>> 
+>>>
 >>> mydict = {
 ...     'text': {
 ...         '@color':'red',
@@ -206,7 +208,7 @@ $ pip install xmltodict
 
 ### Using conda
 
-For installing `xmltodict` using Anaconda/Miniconda (*conda*) from the 
+For installing `xmltodict` using Anaconda/Miniconda (*conda*) from the
 [conda-forge channel][#xmltodict-conda] all you need to do is:
 
 [#xmltodict-conda]: https://anaconda.org/conda-forge/xmltodict
