@@ -1,7 +1,19 @@
+# xmltodict-ordered
+This fork is designed to combine the latest version of xmltodict and [another fork](https://github.com/lindsay-stevens/xmltodict/commits/ordered-children-short-tags) that allows you to preserve the order of tags in xml in .parse and .unparse functions. All the laurels should be given to [lindsay-stevens](https://github.com/lindsay-stevens).
+
+Example:
+```python
+filepath = 'old_ordered.xml'
+xml: str = ''
+with open(filepath, 'r') as f:
+    xml = ''.join(f.readlines())
+xmldict = xmltodict.parse(xml_input=xml, ordered_mixed_children=True) # ordered_mixed_children - flag
+xml = xmltodict.unparse(input_dict=xmldict, pretty=True, ordered_mixed_children=True) # ordered_mixed_children - flag
+with open('new_ordered.xml', 'w') as f:
+    f.write(xml)
+```
+
 # xmltodict
-
-## This fork is designed to combine the latest version of xmltodict and [another fork](https://github.com/lindsay-stevens/xmltodict/commits/ordered-children-short-tags) that allows you to preserve the order of tags in xml in .parse and .unparse functions. All the laurels should be given to [lindsay-stevens](https://github.com/lindsay-stevens)
-
 `xmltodict` is a Python module that makes working with XML feel like you are working with [JSON](http://docs.python.org/library/json.html), as in this ["spec"](http://www.xml.com/pub/a/2006/05/31/converting-between-xml-and-json.html):
 
 [![Build Status](https://app.travis-ci.com/martinblech/xmltodict.svg?branch=master)](https://app.travis-ci.com/martinblech/xmltodict)
