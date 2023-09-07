@@ -31,8 +31,8 @@ try:  # pragma no cover
 except NameError:  # pragma no cover
     _unicode = str
 
-__author__ = 'Martin Blech'
-__version__ = '0.13.0'
+__author__ = 'Martin Blech & lindsay-stevens & kiber-io'
+__version__ = '0.13.1'
 __license__ = 'MIT'
 
 
@@ -55,7 +55,8 @@ class _DictSAXHandler(object):
                  namespace_separator=':',
                  namespaces=None,
                  force_list=None,
-                 comment_key='#comment'):
+                 comment_key='#comment',
+                 ordered_mixed_children=False):
         self.path = []
         self.stack = []
         self.data = []
@@ -75,6 +76,8 @@ class _DictSAXHandler(object):
         self.namespace_declarations = dict_constructor()
         self.force_list = force_list
         self.comment_key = comment_key
+        self.ordered_mixed_children = ordered_mixed_children
+        self.counter = 0
 
     def _build_name(self, full_name):
         if self.namespaces is None:
@@ -93,9 +96,13 @@ class _DictSAXHandler(object):
             return self.namespace_separator.join((short_namespace, name))
 
     def _attrs_to_dict(self, attrs):
-        if isinstance(attrs, dict):
-            return attrs
-        return self.dict_constructor(zip(attrs[0::2], attrs[1::2]))
+        ret_attrs = attrs
+        if not isinstance(attrs, dict):
+            ret_attrs = self.dict_constructor(zip(attrs[0::2], attrs[1::2]))
+        if self.ordered_mixed_children:
+            ret_attrs["__order__"] = self.counter
+            self.counter += 1
+        return ret_attrs
 
     def startNamespaceDecl(self, prefix, uri):
         self.namespace_declarations[prefix or ''] = uri
@@ -200,7 +207,7 @@ class _DictSAXHandler(object):
 
 
 def parse(xml_input, encoding=None, expat=expat, process_namespaces=False,
-          namespace_separator=':', disable_entities=True, process_comments=False, **kwargs):
+          namespace_separator=':', disable_entities=True, process_comments=False, ordered_mixed_children=False, **kwargs):
     """Parse the given XML input and convert it into a dictionary.
 
     `xml_input` can either be a `string`, a file-like object, or a generator of strings.
@@ -334,6 +341,7 @@ def parse(xml_input, encoding=None, expat=expat, process_namespaces=False,
             }
     """
     handler = _DictSAXHandler(namespace_separator=namespace_separator,
+                              ordered_mixed_children=ordered_mixed_children,
                               **kwargs)
     if isinstance(xml_input, _unicode):
         if not encoding:
@@ -405,7 +413,8 @@ def _emit(key, value, content_handler,
           namespace_separator=':',
           namespaces=None,
           full_document=True,
-          expand_iter=None):
+          expand_iter=None,
+          ordered_mixed_children=False):
     key = _process_namespace(key, namespaces, namespace_separator, attr_prefix)
     if preprocessor is not None:
         result = preprocessor(key, value)
@@ -455,8 +464,29 @@ def _emit(key, value, content_handler,
             children.append((ik, iv))
         if type(indent) is int:
             indent = ' ' * indent
+
+        if ordered_mixed_children:
+            order_attr = "__order__"
+            attrs.pop(order_attr, None)
+            order_key = attr_prefix + order_attr
+            # Each ordered element is "lifted" one level into a list of dicts.
+            lift_list = []
+            for child_key, child_value in children:
+                if isinstance(child_value, (list, tuple)):
+                    for val in child_value:
+                        lift_list.append((child_key, val))
+                else:
+                    lift_list.append((child_key, child_value))
+            children = sorted(
+                lift_list, key=lambda x: get_child_order_key(x, order_key))
         if pretty:
             content_handler.ignorableWhitespace(depth * indent)
+        if len(attrs) == 0 and cdata is None and len(children) == 0:
+            content_handler.startElement(key, attrs)
+            content_handler.endElement(key)
+            if pretty:
+                content_handler.ignorableWhitespace(newl)
+            continue
         content_handler.startElement(key, AttributesImpl(attrs))
         if pretty and children:
             content_handler.ignorableWhitespace(newl)
@@ -465,7 +495,8 @@ def _emit(key, value, content_handler,
                   attr_prefix, cdata_key, depth+1, preprocessor,
                   pretty, newl, indent, namespaces=namespaces,
                   namespace_separator=namespace_separator,
-                  expand_iter=expand_iter)
+                  expand_iter=expand_iter,
+                  ordered_mixed_children=ordered_mixed_children)
         if cdata is not None:
             content_handler.characters(cdata)
         if pretty and children:
@@ -475,8 +506,59 @@ def _emit(key, value, content_handler,
             content_handler.ignorableWhitespace(newl)
 
 
+def get_child_order_key(item, order_key):
+    """
+    Get the order key for a child element, default to infinity (stable last).
+    """
+    infinity = float('inf')
+    item_key, item_value = item
+    if isinstance(item_value, dict):
+        return item_value.pop(order_key, infinity)
+    else:
+        return infinity
+
+
+class XMLGeneratorShort(XMLGenerator):
+    """Copy of functionality added in Python 3.2 for short empty elements."""
+
+    def __init__(self, out=None, encoding="utf-8",
+                 short_empty_elements=False):
+        XMLGenerator.__init__(self, out, encoding)
+        self._short_empty_elements = short_empty_elements
+        self._pending_start_element = False
+        if getattr(self, "_out", None) is None:
+            # Python 3.2 removed this for no apparent reason.
+            self._out = out
+
+    def startElement(self, name, attrs):
+        if self._pending_start_element:
+            self._write(_unicode('>'))
+            self._pending_start_element = False
+        self._write(_unicode('<' + name))
+        for (name, value) in attrs.items():
+            self._write(_unicode(' %s=%s' % (name, quoteattr(value))))
+        if self._short_empty_elements:
+            self._pending_start_element = True
+        else:
+            self._write(_unicode('>'))
+
+    def endElement(self, name):
+        if self._pending_start_element:
+            self._write(_unicode('/>'))
+            self._pending_start_element = False
+        else:
+            self._write(_unicode('</%s>' % name))
+
+    def _write(self, text):
+        if isinstance(text, str):
+            self._out.write(text)
+        else:
+            self._out.write(text.encode(self._encoding, 'xmlcharrefreplace'))
+
+
 def unparse(input_dict, output=None, encoding='utf-8', full_document=True,
             short_empty_elements=False,
+            ordered_mixed_children=False,
             **kwargs):
     """Emit an XML document for the given `input_dict` (reverse of `parse`).
 
@@ -506,7 +588,7 @@ def unparse(input_dict, output=None, encoding='utf-8', full_document=True,
         content_handler.startDocument()
     for key, value in input_dict.items():
         _emit(key, value, content_handler, full_document=full_document,
-              **kwargs)
+              ordered_mixed_children=ordered_mixed_children, **kwargs)
     if full_document:
         content_handler.endDocument()
     if must_return:
