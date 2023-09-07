@@ -32,7 +32,7 @@ except NameError:  # pragma no cover
     _unicode = str
 
 __author__ = 'Martin Blech & lindsay-stevens & kiber-io'
-__version__ = '0.13.1'
+__version__ = '0.13.0-ordered'
 __license__ = 'MIT'
 
 
