@@ -498,6 +498,7 @@ def _emit(key, value, content_handler,
         if type(indent) is int:
             indent = ' ' * indent
 
+        unescapeCDATA = False
         if len(inserts) > 0:
             childrenDict = dict(children)
             deleteChildrens = {}
@@ -510,13 +511,16 @@ def _emit(key, value, content_handler,
                 tagOutput = StringIO()
                 tagContentHandler = XMLGenerator(tagOutput, encoding=content_handler.__dict__['_encoding'], short_empty_elements=content_handler.__dict__['_short_empty_elements'])
                 _emit(tagName, tag, tagContentHandler,
-                    attr_prefix, cdata_key, depth+1, preprocessor,
+                    attr_prefix, cdata_key, depth, preprocessor,
                     pretty, newl, indent, namespaces=namespaces,
                     namespace_separator=namespace_separator,
                     expand_iter=expand_iter)
                 cdata = cdata.replace(f'${{{insert}}}', tagOutput.getvalue())
+                if not unescapeCDATA:
+                    unescapeCDATA = True
                 tagOutput.close()
             children.clear()
+            inserts.clear()
             for key, val in childrenDict.items():
                 newVal = []
                 if key not in deleteChildrens: newVal = val
@@ -557,7 +561,10 @@ def _emit(key, value, content_handler,
                   namespace_separator=namespace_separator,
                   expand_iter=expand_iter)
         if cdata is not None:
-            content_handler.characters(cdata)
+            if unescapeCDATA:
+                content_handler._write(cdata)
+            else:
+                content_handler.characters(cdata)
         if pretty and children:
             content_handler.ignorableWhitespace(depth * indent)
         content_handler.endElement(key)
