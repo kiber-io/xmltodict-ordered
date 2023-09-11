@@ -500,12 +500,22 @@ def _emit(key, value, content_handler,
 
         unescapeCDATA = False
         if len(inserts) > 0:
-            childrenDict = dict(children)
+            childrenDict = {}
+            for i in children:
+                k = i[0]
+                childrenDict[k] = []
+                vals = i[1]
+                if isinstance(vals, dict):
+                    vals = [vals]
+                for j in vals:
+                    childrenDict[k].append(j)
             deleteChildrens = {}
             for insert in inserts:
                 tagName, tagId = insert.split('_')
                 tagId = int(tagId)
-                tag = childrenDict[tagName][tagId]
+                if tagName in childrenDict and tagId < len(childrenDict[tagName]):
+                    tag = childrenDict[tagName][tagId]
+                else: continue
                 if tagName not in deleteChildrens: deleteChildrens[tagName] = []
                 deleteChildrens[tagName].append(tagId)
                 tagOutput = StringIO()
@@ -515,20 +525,21 @@ def _emit(key, value, content_handler,
                     pretty, newl, indent, namespaces=namespaces,
                     namespace_separator=namespace_separator,
                     expand_iter=expand_iter)
-                cdata = cdata.replace(f'${{{insert}}}', tagOutput.getvalue())
+                cdata = cdata.replace(f'${{{insert}}}', tagOutput.getvalue().strip())
                 if not unescapeCDATA:
                     unescapeCDATA = True
                 tagOutput.close()
             children.clear()
             inserts.clear()
-            for key, val in childrenDict.items():
+            for k, val in childrenDict.items():
                 newVal = []
-                if key not in deleteChildrens: newVal = val
+                if k not in deleteChildrens: newVal = val
                 else:
-                    deleteIndexes = deleteChildrens[key]
+                    deleteIndexes = deleteChildrens[k]
                     for i, v in enumerate(val):
                         if i not in deleteIndexes: newVal.append(val)
-                children.append((key, newVal))
+                if len(newVal) > 0:
+                    children.append((k, newVal))
 
         order_attr = "__order__"
         attrs.pop(order_attr, None)

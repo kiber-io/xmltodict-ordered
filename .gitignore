@@ -34,3 +34,5 @@ nosetests.xml
 
 #setuptools MANIFEST
 MANIFEST
+
+*.xml
