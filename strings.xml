@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<resources>
+  <string name="user_agreements_ads_agreement">Я даю <annotation type="agreement_link">согласие</annotation> на получение рекламных <annotation type="test_annotation">сообщений</annotation>.</string>
+  <string name="zoom_barcode_title">Моя карта лояльности</string>
+  <string name="test">
+    <substring name="subtest"></substring>
+  </string>
+</resources>

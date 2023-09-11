@@ -55,8 +55,7 @@ class _DictSAXHandler(object):
                  namespace_separator=':',
                  namespaces=None,
                  force_list=None,
-                 comment_key='#comment',
-                 ordered_mixed_children=False):
+                 comment_key='#comment'):
         self.path = []
         self.stack = []
         self.data = []
@@ -76,7 +75,6 @@ class _DictSAXHandler(object):
         self.namespace_declarations = dict_constructor()
         self.force_list = force_list
         self.comment_key = comment_key
-        self.ordered_mixed_children = ordered_mixed_children
         self.counter = 0
 
     def _build_name(self, full_name):
@@ -99,9 +97,8 @@ class _DictSAXHandler(object):
         ret_attrs = attrs
         if not isinstance(attrs, dict):
             ret_attrs = self.dict_constructor(zip(attrs[0::2], attrs[1::2]))
-        if self.ordered_mixed_children:
-            ret_attrs["__order__"] = self.counter
-            self.counter += 1
+        ret_attrs["__order__"] = self.counter
+        self.counter += 1
         return ret_attrs
 
     def startNamespaceDecl(self, prefix, uri):
@@ -146,10 +143,41 @@ class _DictSAXHandler(object):
         if self.stack:
             data = (None if not self.data
                     else self.cdata_separator.join(self.data))
+            currentData = self.data
             item = self.item
             self.item, self.data = self.stack.pop()
             if self.strip_whitespace and data and item:
                 data = data.strip() or None
+            if data is not None:
+                childs = []
+                for key, val in item.items():
+                    if key.startswith('@'): continue
+                    if isinstance(item[key], list):
+                        for child in item[key]:
+                            childs.append({
+                                'name': key,
+                                'value': child
+                            })
+                    else:
+                        childs.append({
+                            'name': key,
+                            'value': val
+                        })
+                if len(childs) > 0:
+                    # if data length not 0 and have childs - this nested tag in text
+                    data = ''
+                    inserts = []
+                    for i, d in enumerate(currentData):
+                        tag = None
+                        if i < len(childs):
+                            tag = childs[i]
+                        data += d
+                        if tag is not None:
+                            tagKey = f"{tag['name']}_{i}"
+                            data += f"${{{tagKey}}}"
+                            inserts.append(tagKey)
+                    if len(inserts) > 0:
+                        item['@__inserts__'] = inserts
             if data and self.force_cdata and item is None:
                 item = self.dict_constructor()
             if item is not None:
@@ -207,7 +235,7 @@ class _DictSAXHandler(object):
 
 
 def parse(xml_input, encoding=None, expat=expat, process_namespaces=False,
-          namespace_separator=':', disable_entities=True, process_comments=False, ordered_mixed_children=False, **kwargs):
+          namespace_separator=':', disable_entities=True, process_comments=False, **kwargs):
     """Parse the given XML input and convert it into a dictionary.
 
     `xml_input` can either be a `string`, a file-like object, or a generator of strings.
@@ -341,7 +369,6 @@ def parse(xml_input, encoding=None, expat=expat, process_namespaces=False,
             }
     """
     handler = _DictSAXHandler(namespace_separator=namespace_separator,
-                              ordered_mixed_children=ordered_mixed_children,
                               **kwargs)
     if isinstance(xml_input, _unicode):
         if not encoding:
@@ -413,8 +440,7 @@ def _emit(key, value, content_handler,
           namespace_separator=':',
           namespaces=None,
           full_document=True,
-          expand_iter=None,
-          ordered_mixed_children=False):
+          expand_iter=None):
     key = _process_namespace(key, namespaces, namespace_separator, attr_prefix)
     if preprocessor is not None:
         result = preprocessor(key, value)
@@ -442,6 +468,13 @@ def _emit(key, value, content_handler,
                 v = _unicode(v)
         if isinstance(v, _basestring):
             v = _dict(((cdata_key, v),))
+
+        inserts = []
+        insertsKey = f'{attr_prefix}__inserts__'
+        if insertsKey in v:
+            inserts = v[insertsKey]
+            del v[insertsKey]
+
         cdata = None
         attrs = _dict()
         children = []
@@ -465,20 +498,47 @@ def _emit(key, value, content_handler,
         if type(indent) is int:
             indent = ' ' * indent
 
-        if ordered_mixed_children:
-            order_attr = "__order__"
-            attrs.pop(order_attr, None)
-            order_key = attr_prefix + order_attr
-            # Each ordered element is "lifted" one level into a list of dicts.
-            lift_list = []
-            for child_key, child_value in children:
-                if isinstance(child_value, (list, tuple)):
-                    for val in child_value:
-                        lift_list.append((child_key, val))
+        if len(inserts) > 0:
+            childrenDict = dict(children)
+            deleteChildrens = {}
+            for insert in inserts:
+                tagName, tagId = insert.split('_')
+                tagId = int(tagId)
+                tag = childrenDict[tagName][tagId]
+                if tagName not in deleteChildrens: deleteChildrens[tagName] = []
+                deleteChildrens[tagName].append(tagId)
+                tagOutput = StringIO()
+                tagContentHandler = XMLGenerator(tagOutput, encoding=content_handler.__dict__['_encoding'], short_empty_elements=content_handler.__dict__['_short_empty_elements'])
+                _emit(tagName, tag, tagContentHandler,
+                    attr_prefix, cdata_key, depth+1, preprocessor,
+                    pretty, newl, indent, namespaces=namespaces,
+                    namespace_separator=namespace_separator,
+                    expand_iter=expand_iter)
+                cdata = cdata.replace(f'${{{insert}}}', tagOutput.getvalue())
+                tagOutput.close()
+            children.clear()
+            for key, val in childrenDict.items():
+                newVal = []
+                if key not in deleteChildrens: newVal = val
                 else:
-                    lift_list.append((child_key, child_value))
-            children = sorted(
-                lift_list, key=lambda x: get_child_order_key(x, order_key))
+                    deleteIndexes = deleteChildrens[key]
+                    for i, v in enumerate(val):
+                        if i not in deleteIndexes: newVal.append(val)
+                children.append((key, newVal))
+
+        order_attr = "__order__"
+        attrs.pop(order_attr, None)
+        order_key = attr_prefix + order_attr
+        # Each ordered element is "lifted" one level into a list of dicts.
+        lift_list = []
+        for child_key, child_value in children:
+            if isinstance(child_value, (list, tuple)):
+                for val in child_value:
+                    lift_list.append((child_key, val))
+            else:
+                lift_list.append((child_key, child_value))
+        children = sorted(
+            lift_list, key=lambda x: get_child_order_key(x, order_key))
         if pretty:
             content_handler.ignorableWhitespace(depth * indent)
         if len(attrs) == 0 and cdata is None and len(children) == 0:
@@ -495,8 +555,7 @@ def _emit(key, value, content_handler,
                   attr_prefix, cdata_key, depth+1, preprocessor,
                   pretty, newl, indent, namespaces=namespaces,
                   namespace_separator=namespace_separator,
-                  expand_iter=expand_iter,
-                  ordered_mixed_children=ordered_mixed_children)
+                  expand_iter=expand_iter)
         if cdata is not None:
             content_handler.characters(cdata)
         if pretty and children:
@@ -558,7 +617,6 @@ class XMLGeneratorShort(XMLGenerator):
 
 def unparse(input_dict, output=None, encoding='utf-8', full_document=True,
             short_empty_elements=False,
-            ordered_mixed_children=False,
             **kwargs):
     """Emit an XML document for the given `input_dict` (reverse of `parse`).
 
@@ -587,8 +645,7 @@ def unparse(input_dict, output=None, encoding='utf-8', full_document=True,
     if full_document:
         content_handler.startDocument()
     for key, value in input_dict.items():
-        _emit(key, value, content_handler, full_document=full_document,
-              ordered_mixed_children=ordered_mixed_children, **kwargs)
+        _emit(key, value, content_handler, full_document=full_document, **kwargs)
     if full_document:
         content_handler.endDocument()
     if must_return:
